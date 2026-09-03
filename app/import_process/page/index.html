@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>掌柜智库 - 知识库智能问答系统</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background-color: white;
+            padding: 50px 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 34px;
+        }
+        .subtitle {
+            color: #7f8c8d;
+            font-size: 16px;
+            margin-bottom: 40px;
+        }
+        .intro {
+            color: #34495e;
+            font-size: 15px;
+            line-height: 1.8;
+            max-width: 640px;
+            margin: 0 auto 40px auto;
+            text-align: left;
+        }
+        /* 功能特点卡片区域 */
+        .features {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 45px;
+        }
+        .feature-card {
+            flex: 1;
+            background-color: #f5f7fa;
+            border-radius: 10px;
+            padding: 22px 16px;
+        }
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .feature-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        .feature-desc {
+            font-size: 13px;
+            color: #7f8c8d;
+            line-height: 1.6;
+        }
+        /* 按钮区域 */
+        .btn-area {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 36px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        /* 主按钮：上传文档 */
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+        /* 次按钮：智能问答 */
+        .btn-secondary {
+            background-color: white;
+            color: #3498db;
+            border: 2px solid #3498db;
+        }
+        .btn-secondary:hover {
+            background-color: #ecf6fd;
+        }
+        .footer-tip {
+            margin-top: 40px;
+            font-size: 12px;
+            color: #b0b8bf;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 掌柜智库</h1>
+        <div class="subtitle">基于 RAG 的知识库智能问答系统</div>
+
+        <div class="intro">
+            掌柜智库是一个本地知识库智能问答系统：把你的文档（PDF / Markdown）上传后，
+            系统会自动完成 <b>文档解析 → 智能切分 → 向量化 → 入库</b>，
+            之后你就可以用自然语言提问，系统会从知识库中检索最相关的内容，
+            结合大模型生成准确、可追溯的回答。
+        </div>
+
+        <!-- 三张功能特点卡片 -->
+        <div class="features">
+            <div class="feature-card">
+                <div class="feature-icon">📄</div>
+                <div class="feature-title">文档导入</div>
+                <div class="feature-desc">支持 PDF、Markdown 等格式，自动解析并切分成语义片段</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <div class="feature-title">向量检索</div>
+                <div class="feature-desc">基于 BGE-M3 向量模型与 Milvus 数据库，精准定位相关内容</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <div class="feature-title">智能问答</div>
+                <div class="feature-desc">结合大模型生成回答，支持联网搜索与结果重排序</div>
+            </div>
+        </div>
+
+        <!-- 跳转按钮 -->
+        <div class="btn-area">
+            <a class="btn btn-primary" href="/import.html">⬆️ 上传文档</a>
+            <a class="btn btn-secondary" href="http://127.0.0.1:8001/chat.html">💬 智能问答</a>
+        </div>
+
+        <div class="footer-tip">Tip：建议先上传文档构建知识库，再前往智能问答页提问</div>
+    </div>
+</body>
+</html>

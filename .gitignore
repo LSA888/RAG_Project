@@ -1,0 +1,64 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== Env & Secrets =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== RAG Project Outputs =====
+output/
+temp-files/
+*.zip
+
+# SQLite 对话历史数据库（运行时自动生成）
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# ===== Models =====
+# 本地下载的模型体积大，不提交
+D:/ai_models/
+ai_models/
+modelscope_cache/
+
+# ===== Dataset =====
+# doc/ 下的 PDF 文档体积大，不提交
+# 如需展示项目，请自行删除 .gitignore 中 doc/ 这一行
+doc/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== Git =====
+.git/
+.gitattributes
