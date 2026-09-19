@@ -20,7 +20,7 @@ def get_llm_client(model: Optional[str] = None, json_mode: bool = False) -> Chat
     适配OpenAI/千问/即梦AI等**OpenAI兼容API**，支持自定义模型和JSON标准化输出
     核心特性：缓存机制+配置统一加载+异常精准捕获+国产模型参数适配
 
-    :param model: 模型名称，优先级：传入参数 > 配置文件lm_config.llm_model > 内置默认qwen3-32b
+    :param model: 模型名称，优先级：传入参数 > 配置文件lm_config.llm_model > 内置默认deepseek-flash
     :param json_mode: 是否开启JSON输出模式，开启后返回标准json_object格式（适配结构化数据解析）
     :return: 初始化完成的ChatOpenAI实例（优先从全局缓存获取，未命中则新建并缓存）
     :raise ValueError: 缺失API密钥/基础地址等核心配置
@@ -43,9 +43,9 @@ def get_llm_client(model: Optional[str] = None, json_mode: bool = False) -> Chat
         raise ValueError("[LLM客户端] 配置缺失：请在.env中配置OPENAI_API_BASE（API接口基础地址）")
     logger.info(f"[LLM客户端] 开始初始化新实例：模型={target_model}，JSON模式={json_mode}")
 
-    # 4. 配置参数组装：区分「国产模型私有参数」和「OpenAI通用参数」
-    # extra_body：千问/即梦等国产模型专属私有参数（LangChain透传至API）
-    extra_body = {"enable_thinking": False}  # 千问专属：关闭思考链输出，减少冗余内容
+    # 4. 配置参数组装
+    # extra_body：OpenAI兼容API透传的私有参数（千问用于关闭思考链；DeepSeek会忽略未知参数，无副作用）
+    extra_body = {"enable_thinking": False}
     # model_kwargs：OpenAI通用参数，所有兼容API均支持
     model_kwargs = {}
     if json_mode:
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         client1 = get_llm_client()
         logger.info("✅ 测试1通过：默认配置客户端创建成功")
 
-        # 测试2：指定多模态模型（qwen-vl-plus）+ 普通模式
+        # 测试2：指定模型名 + 普通模式
         client2 = get_llm_client(model="deepseek-flash")
         logger.info("✅ 测试2通过：指定多模态模型客户端创建成功")
 

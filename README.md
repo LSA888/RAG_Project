@@ -34,8 +34,8 @@
               └────────┬────────┘
                        │
               ┌────────┴────────┐
-              │ 阿里云 DashScope│
-              │  qwen-flash 生成│
+              │  DeepSeek       │
+              │deepseek-flash   │
               └─────────────────┘
 ```
 
@@ -51,7 +51,7 @@
 | 对象存储 | MinIO | - |
 | 向量模型 | BAAI/bge-m3 | 本地 CPU/GPU |
 | 重排序模型 | BAAI/bge-reranker-large | 本地 CPU/GPU |
-| LLM | 阿里云百炼 qwen-flash | DashScope API |
+| LLM | DeepSeek deepseek-flash | OpenAI 兼容 API |
 | PDF 解析 | MinerU (magic-pdf) | 在线 API |
 | 容器化 | Docker Desktop | - |
 
@@ -63,7 +63,7 @@
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
-4. **阿里云百炼 API Key**（意图识别 + 答案生成）：https://bailian.console.aliyun.com/
+4. **DeepSeek API Key**（意图识别 + 答案生成）：https://platform.deepseek.com/
 5. **MinerU API Token**（PDF 解析）：https://mineru.net
 
 ## 🚀 快速启动（Windows）
@@ -95,13 +95,17 @@ uv run python app/tool/download_reranker.py
 复制 `.env` 并填入你的密钥：
 
 ```ini
-# 必填：阿里云百炼 API Key
-OPENAI_API_KEY=sk-你的百炼key
-OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# 必填：DeepSeek API Key
+OPENAI_API_KEY=sk-你的deepseekkey
+OPENAI_BASE_URL=https://api.deepseek.com
 
 # 必填：MinerU API Token（PDF 解析）
 MINERU_API_TOKEN=你的MinerUtoken
 MINERU_BASE_URL=https://mineru.net/api/v4
+
+# 默认 LLM / 视觉模型（图片摘要）
+LLM_DEFAULT_MODEL=deepseek-flash
+VL_MODEL=deepseek-flash
 
 # Milvus 本地 Docker
 MILVUS_URL=http://127.0.0.1:19530
