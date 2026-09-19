@@ -210,6 +210,48 @@
     .typing{
       display:inline-flex;gap:6px;align-items:center;
     }
+
+    /* 检索溯源展示 */
+    .sources{
+      margin-top:10px;
+      border:1px dashed rgba(122,134,154,.45);
+      border-radius:10px;
+      padding:8px 12px;
+      background:rgba(122,134,154,.05);
+    }
+    .sources summary{
+      cursor:pointer;
+      user-select:none;
+      color:var(--muted);
+      font-size:12px;
+    }
+    .source-item{
+      padding:8px 10px;
+      border-left:3px solid var(--brand);
+      background:#fff;
+      border-radius:6px;
+      margin:6px 0;
+      font-size:12px;
+    }
+    .source-item .source-meta{
+      display:flex;
+      gap:8px;
+      margin-bottom:4px;
+      align-items:center;
+    }
+    .source-item .src-tag{
+      font-size:10px;
+      padding:1px 6px;
+      border-radius:4px;
+      font-weight:600;
+    }
+    .source-item .src-tag.local{background:#d4edda;color:#155724;}
+    .source-item .src-tag.web{background:#cce5ff;color:#004085;}
+    .source-item .src-tag.unknown{background:#eee;color:#666;}
+    .source-item .src-title{color:#2c3e50;font-weight:600;}
+    .source-item .src-score{color:#95a5a6;font-family:monospace;font-size:11px;}
+    .source-item .src-text{color:#555;line-height:1.5;}
+
     .dot{
       width:7px;height:7px;border-radius:50%;
       background:#9aa6b2;
@@ -639,7 +681,42 @@
       }
     }
 
-    function finalizeBotAnswer(botMsgEl, answer, error, imageUrls){
+    function renderSources(botMsgEl, sourceChunks) {
+      if (!sourceChunks || !sourceChunks.length) return;
+      const container = document.createElement('details');
+      container.className = 'sources';
+      container.open = false;
+      container.innerHTML = `<summary>🔍 检索溯源（${sourceChunks.length} 条参考片段）</summary>`;
+      const inner = document.createElement('div');
+      sourceChunks.forEach((s, i) => {
+        const tagClass = (s.source === 'local') ? 'local' : (s.source === 'web' ? 'web' : 'unknown');
+        const tagText = (s.source === 'local') ? '📄 本地' : (s.source === 'web' ? '🌐 联网' : '📎');
+        const title = s.title || '(无标题)';
+        const score = s.score !== undefined ? Number(s.score).toFixed(4) : '';
+        const text = s.text_preview || '';
+        const item = document.createElement('div');
+        item.className = 'source-item';
+        item.innerHTML = `
+          <div class="source-meta">
+            <span class="src-tag ${tagClass}">${tagText}</span>
+            <span class="src-title">${escapeHtml(title)}</span>
+            ${score ? `<span class="src-score">score=${score}</span>` : ''}
+          </div>
+          <div class="src-text">${escapeHtml(text)}</div>
+        `;
+        inner.appendChild(item);
+      });
+      container.appendChild(inner);
+      // 插入到 bubble 之后
+      const bubble = botMsgEl.querySelector('.bubble');
+      if (bubble && bubble.nextSibling) {
+        botMsgEl.insertBefore(container, bubble.nextSibling);
+      } else if (bubble) {
+        bubble.parentElement.appendChild(container);
+      }
+    }
+
+    function finalizeBotAnswer(botMsgEl, answer, error, imageUrls, sourceChunks){
       const bubble = botMsgEl.querySelector('.bubble');
       const progress = botMsgEl.querySelector('details.progress');
       const err = (error || '').trim();
@@ -670,6 +747,7 @@
       bubble.appendChild(answerEl);
       renderAnswerWithImages(answerEl, answer || '', imageUrls || []);
       if(progressEl) bubble.appendChild(progressEl);
+      renderSources(botMsgEl, sourceChunks);
     }
 
     async function apiHealth(){
@@ -766,9 +844,9 @@
 
         if (!isStream) {
           // 非流式：直接拿到结果
-          // data: { session_id, answer, done_list, error, message }
+          // data: { session_id, answer, done_list, error, message, source_chunks }
           renderProgress(botMsgEl, data.done_list || [], [], 'completed');
-          finalizeBotAnswer(botMsgEl, data.answer, data.error, data.image_urls || []);
+          finalizeBotAnswer(botMsgEl, data.answer, data.error, data.image_urls || [], data.source_chunks || []);
           sendBtn.disabled = false;
           return;
         }
@@ -824,9 +902,10 @@
           
           try{
             const d = JSON.parse(e.data || '{}');
-            // 流式 delta 可能不包含“【图片】/图片列表”，最终包的 d.answer 才是完整答案；优先使用 d.answer
+            // 流式 delta 可能不包含"【图片】/图片列表"，最终包的 d.answer 才是完整答案；优先使用 d.answer
             const finalText = (d && typeof d.answer === 'string' && d.answer.trim().length > 0) ? d.answer : (rawAnswerText || answerEl.textContent || '');
             renderAnswerWithImages(answerEl, finalText, d.image_urls || []);
+            renderSources(botMsgEl, d.source_chunks || []);
           }catch(_){}
           es.close();
           sendBtn.disabled = false;
@@ -843,6 +922,7 @@
             const d = JSON.parse(e.data || '{}');
             const finalText = (d && typeof d.answer === 'string' && d.answer.trim().length > 0) ? d.answer : (rawAnswerText || answerEl.textContent || '');
             renderAnswerWithImages(answerEl, finalText, d.image_urls || []);
+            renderSources(botMsgEl, d.source_chunks || []);
           }catch(_){}
           es.close();
           sendBtn.disabled = false;

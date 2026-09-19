@@ -1,15 +1,18 @@
 import os
 import shutil
 import uuid
-from typing import List, Dict, Any
+import sqlite3
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 import uvicorn
 # 第三方库
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 # 项目内部工具/配置/客户端
 from app.clients.minio_utils import get_minio_client
+from app.clients.milvus_utils import get_milvus_client
+from app.conf.milvus_config import milvus_config
 from app.utils.path_util import PROJECT_ROOT
 from app.utils.task_utils import (
     add_running_task,
@@ -248,6 +251,163 @@ async def get_task_progress(task_id: str):
     logger.info(
         f"[{task_id}] 任务状态查询，当前状态：{task_status_info['status']}，已完成节点：{task_status_info['done_list']}")
     return task_status_info
+
+
+# --------------------------
+# 静态页面路由：知识库管理页
+# --------------------------
+@app.get("/kb.html", response_class=FileResponse)
+async def get_kb_page():
+    html_abs_path = PROJECT_ROOT / "app/import_process/page/kb_manage.html"
+    if not os.path.exists(html_abs_path):
+        raise HTTPException(status_code=404, detail="kb_manage.html page not found")
+    return FileResponse(path=html_abs_path, media_type="text/html")
+
+
+# --------------------------
+# 静态页面路由：对话历史页（从8001引入数据，页面放在8000端口统一导航）
+# --------------------------
+@app.get("/history.html", response_class=FileResponse)
+async def get_history_page():
+    html_abs_path = PROJECT_ROOT / "app/import_process/page/history.html"
+    if not os.path.exists(html_abs_path):
+        raise HTTPException(status_code=404, detail="history.html page not found")
+    return FileResponse(path=html_abs_path, media_type="text/html")
+
+
+# --------------------------
+# 静态页面路由：系统状态页
+# --------------------------
+@app.get("/system.html", response_class=FileResponse)
+async def get_system_page():
+    html_abs_path = PROJECT_ROOT / "app/import_process/page/system.html"
+    if not os.path.exists(html_abs_path):
+        raise HTTPException(status_code=404, detail="system.html page not found")
+    return FileResponse(path=html_abs_path, media_type="text/html")
+
+
+# --------------------------
+# API：知识库统计 —— 查询 Milvus 所有集合的行数/字段信息
+# --------------------------
+@app.get("/api/kb_stats")
+async def api_kb_stats():
+    client = get_milvus_client()
+    if client is None:
+        return {"ok": False, "error": "Milvus 连接失败", "collections": []}
+
+    result = {"ok": True, "collections": []}
+    try:
+        coll_names = client.list_collections() or []
+        for name in coll_names:
+            try:
+                stats = client.get_collection_stats(collection_name=name)
+                row_count = stats.get("row_count", 0) if stats else 0
+            except Exception:
+                row_count = 0
+            # 尝试获取 schema 摘要
+            fields = []
+            try:
+                schema = client.describe_collection(collection_name=name)
+                for f in schema.get("fields", []):
+                    fields.append({"name": f.get("name"), "type": str(f.get("type"))})
+            except Exception:
+                pass
+            result["collections"].append({
+                "name": name,
+                "row_count": row_count,
+                "fields": fields,
+            })
+    except Exception as e:
+        logger.error(f"获取 Milvus 集合列表失败: {e}")
+        result["ok"] = False
+        result["error"] = str(e)
+    return result
+
+
+# --------------------------
+# API：知识库内容预览 —— 从指定集合中抽样 N 条切片
+# --------------------------
+@app.get("/api/kb_chunks")
+async def api_kb_chunks(
+    collection: str = Query(..., description="集合名，如 kb_chunks"),
+    limit: int = Query(10, ge=1, le=50, description="返回条数"),
+):
+    client = get_milvus_client()
+    if client is None:
+        return {"ok": False, "error": "Milvus 连接失败", "items": []}
+
+    try:
+        collections = client.list_collections() or []
+        if collection not in collections:
+            return {"ok": False, "error": f"集合 {collection} 不存在", "items": []}
+
+        # 根据集合名决定输出字段
+        if "item_name" in collection:
+            output_fields = ["item_name"]
+        else:
+            output_fields = ["chunk_id", "content", "title", "item_name"]
+
+        # Milvus query 支持 limit 参数，无过滤条件时可直接取样
+        items = client.query(
+            collection_name=collection,
+            filter="",
+            output_fields=output_fields,
+            limit=limit,
+        )
+        return {"ok": True, "collection": collection, "items": items or []}
+    except Exception as e:
+        logger.error(f"获取集合 {collection} 切片失败: {e}")
+        return {"ok": False, "error": str(e), "items": []}
+
+
+# --------------------------
+# API：系统总览 —— Milvus 状态 + MinIO 状态 + SQLite 记录数
+# --------------------------
+@app.get("/api/system_status")
+async def api_system_status():
+    milvus_ok = False
+    milvus_cols = 0
+    try:
+        mc = get_milvus_client()
+        if mc is not None:
+            colls = mc.list_collections() or []
+            milvus_cols = len(colls)
+            milvus_ok = True
+    except Exception:
+        pass
+
+    minio_ok = False
+    minio_buckets = 0
+    try:
+        mi = get_minio_client()
+        if mi is not None:
+            minio_ok = True
+    except Exception:
+        pass
+
+    sqlite_sessions = 0
+    sqlite_messages = 0
+    try:
+        db_path = PROJECT_ROOT / "data" / "chat_history.db"
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(str(db_path))
+            cur = conn.execute("SELECT COUNT(DISTINCT session_id) FROM chat_message")
+            sqlite_sessions = cur.fetchone()[0]
+            cur = conn.execute("SELECT COUNT(*) FROM chat_message")
+            sqlite_messages = cur.fetchone()[0]
+            conn.close()
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "services": {
+            "milvus": {"status": "online" if milvus_ok else "offline", "collections": milvus_cols, "url": os.getenv("MILVUS_URL", "")},
+            "minio": {"status": "online" if minio_ok else "offline", "endpoint": os.getenv("MINIO_ENDPOINT", "")},
+            "sqlite_history": {"sessions": sqlite_sessions, "messages": sqlite_messages},
+        },
+        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
 
 # --------------------------

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理 - 掌柜智库</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 20px;
+        }
+        .topbar h1 {
+            margin: 0;
+            font-size: 22px;
+            color: #2c3e50;
+        }
+        .topbar .sub {
+            color: #7f8c8d;
+            font-size: 13px;
+            margin-top: 2px;
+        }
+        .topbar .refresh-btn {
+            margin-left: auto;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .topbar .refresh-btn:hover { background: #2980b9; }
+        .btn-home {
+            padding: 8px 16px;
+            background: white;
+            color: #3498db;
+            border: 1px solid #3498db;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .btn-home:hover { background: #ecf6fd; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow: hidden;
+        }
+        .card-header {
+            padding: 14px 20px;
+            border-bottom: 1px solid #ecf0f1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-header h2 {
+            margin: 0;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+        .card-header .count {
+            background: #3498db;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .card-body {
+            padding: 16px 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #95a5a6;
+        }
+        .field-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .field-name {
+            background: #ecf0f1;
+            color: #34495e;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        .field-type {
+            color: #7f8c8d;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .chunk-item {
+            padding: 12px;
+            border: 1px solid #ecf0f1;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            background: #fafbfc;
+        }
+        .chunk-item:last-child { margin-bottom: 0; }
+        .chunk-meta {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+        .chunk-meta .title {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        .chunk-meta .item-name {
+            color: #3498db;
+        }
+        .chunk-text {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .tab {
+            padding: 8px 16px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .tab.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        .tab:hover:not(.active) { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="topbar">
+            <div>
+                <h1>📂 知识库管理</h1>
+                <div class="sub">查看 Milvus 集合、向量切片与商品名索引</div>
+            </div>
+            <button class="refresh-btn" onclick="loadData()">🔄 刷新</button>
+            <a class="btn-home" href="/">🏠 返回首页</a>
+        </div>
+
+        <div class="tabs" id="tabs">
+            <div class="tab active" onclick="switchTab('stats')">集合概览</div>
+            <div class="tab" onclick="switchTab('chunks')">内容预览</div>
+        </div>
+
+        <!-- 集合概览 -->
+        <div id="tab-stats">
+            <div id="stats-container" class="grid">
+                <div class="empty">加载中...</div>
+            </div>
+        </div>
+
+        <!-- 内容预览 -->
+        <div id="tab-chunks" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="chunk-title">选择要预览的集合</h2>
+                    <select id="collection-select" onchange="loadChunks(this.value)">
+                        <option value="">-- 请先加载集合 --</option>
+                    </select>
+                </div>
+                <div class="card-body" id="chunk-container">
+                    <div class="empty">请先刷新并选择集合</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            document.getElementById('stats-container').innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch('/api/kb_stats');
+                const data = await res.json();
+                if (!data.ok) {
+                    document.getElementById('stats-container').innerHTML = `<div class="empty">❌ ${data.error || '未知错误'}<br>请确认 Milvus 已启动（Docker Desktop）</div>`;
+                    updateSelect([]);
+                    return;
+                }
+                renderStats(data.collections);
+                updateSelect(data.collections);
+            } catch (e) {
+                document.getElementById('stats-container').innerHTML = `<div class="empty">❌ 请求失败：${e.message}</div>`;
+            }
+        }
+
+        function renderStats(collections) {
+            if (!collections.length) {
+                document.getElementById('stats-container').innerHTML = '<div class="empty">暂无集合，请先导入文档</div>';
+                return;
+            }
+            const html = collections.map(c => `
+                <div class="card">
+                    <div class="card-header">
+                        <h2>${c.name}</h2>
+                        <span class="count">${c.row_count} 条向量</span>
+                    </div>
+                    <div class="card-body">
+                        <div style="margin-bottom:10px;color:#7f8c8d;font-size:12px;">Schema 字段：</div>
+                        ${c.fields.length ? c.fields.map(f => `
+                            <div class="field-row">
+                                <span class="field-name">${f.name}</span>
+                                <span class="field-type">${f.type}</span>
+                            </div>
+                        `).join('') : '<div style="color:#95a5a6;font-size:13px;">无字段信息</div>'}
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('stats-container').innerHTML = html;
+        }
+
+        function updateSelect(collections) {
+            const sel = document.getElementById('collection-select');
+            if (!collections.length) {
+                sel.innerHTML = '<option value="">暂无集合</option>';
+                return;
+            }
+            sel.innerHTML = collections.map(c => `<option value="${c.name}">${c.name} (${c.row_count})</option>`).join('');
+            loadChunks(collections[0].name);
+        }
+
+        async function loadChunks(collection) {
+            const container = document.getElementById('chunk-container');
+            document.getElementById('chunk-title').textContent = collection || '内容预览';
+            if (!collection) { container.innerHTML = '<div class="empty">请选择集合</div>'; return; }
+            container.innerHTML = '<div class="empty">加载中...</div>';
+            try {
+                const res = await fetch(`/api/kb_chunks?collection=${encodeURIComponent(collection)}&limit=15`);
+                const data = await res.json();
+                if (!data.ok) { container.innerHTML = `<div class="empty">❌ ${data.error}</div>`; return; }
+                renderChunks(data.items, collection);
+            } catch (e) {
+                container.innerHTML = `<div class="empty">❌ 请求失败：${e.message}</div>`;
+            }
+        }
+
+        function renderChunks(items, collection) {
+            if (!items.length) {
+                document.getElementById('chunk-container').innerHTML = '<div class="empty">集合为空</div>';
+                return;
+            }
+            const isItemNames = collection.includes('item_name') || items[0].item_name !== undefined;
+            const html = items.map((it, i) => {
+                if (isItemNames && it.item_name !== undefined && it.content === undefined) {
+                    return `<div class="chunk-item">
+                        <div class="chunk-meta"><span class="item-name">🔖 ${it.item_name}</span></div>
+                    </div>`;
+                }
+                const title = it.title || '';
+                const itemName = it.item_name || '';
+                const chunkId = it.chunk_id !== undefined ? `#${it.chunk_id}` : '';
+                const content = (it.content || '').slice(0, 300);
+                return `<div class="chunk-item">
+                    <div class="chunk-meta">
+                        ${chunkId ? `<span>${chunkId}</span>` : ''}
+                        ${title ? `<span class="title">📄 ${title}</span>` : ''}
+                        ${itemName ? `<span class="item-name">🏷️ ${itemName}</span>` : ''}
+                    </div>
+                    <div class="chunk-text">${content || '(无内容)'}</div>
+                </div>`;
+            }).join('');
+            document.getElementById('chunk-container').innerHTML = html;
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach((t, i) => {
+                if ((tab === 'stats' && i === 0) || (tab === 'chunks' && i === 1)) t.classList.add('active');
+            });
+            document.getElementById('tab-stats').style.display = tab === 'stats' ? '' : 'none';
+            document.getElementById('tab-chunks').style.display = tab === 'chunks' ? '' : 'none';
+        }
+
+        loadData();
+    </script>
+</body>
+</html>

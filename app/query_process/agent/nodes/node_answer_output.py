@@ -106,7 +106,7 @@ def step_2_construct_prompt(state: QueryGraphState) -> str:
   history_str = ""
   if history:
     for msg in history:
-      # 修正：MongoDB存储格式为 {"role": "user"/"assistant", "text": "..."}
+      # 兼容当前存储层的消息格式 {"role": "user"/"assistant", "text": "..."}
       role = msg.get("role")
       text = msg.get("text")
       if role == "user" and text:
@@ -255,7 +255,7 @@ def _extract_images_from_docs(docs):
     return images
 
 
-def step_4_write_history(state: QueryGraphState, image_urls = None) -> QueryGraphState:
+def step_4_write_history(state: QueryGraphState, image_urls = None, source_chunks = None) -> QueryGraphState:
   """
   阶段四：把本轮答案写入对话历史（SQLite）。
   利用 clients/sqlite_history_utils.py 中的 save_chat_message 方法。
@@ -277,7 +277,7 @@ def step_4_write_history(state: QueryGraphState, image_urls = None) -> QueryGrap
       )
   except Exception as e:
     # 写历史失败不应影响主链路
-    logger.error(f"写入Mongo历史记录失败: {e}")
+    logger.error(f"写入对话历史失败: {e}")
 
   return state
 
@@ -315,13 +315,36 @@ def node_answer_output(state: QueryGraphState) -> QueryGraphState:
   # 提取图片URL（用于历史记录和前端展示）
   image_urls = _extract_images_from_docs(state.get("reranked_docs") or [])
 
-  # 阶段四：把答案写入到mongodb的history中
+  # 提取溯源切片（截断，防止前端渲染过大）
+  reranked = state.get("reranked_docs") or []
+  source_chunks = []
+  for doc in reranked:
+      text = (doc.get("text") or "").strip()
+      if not text:
+          continue
+      source_chunks.append({
+          "source": doc.get("source") or "",
+          "title": doc.get("title") or "",
+          "chunk_id": doc.get("chunk_id"),
+          "score": doc.get("score"),
+          "text_preview": text[:300] + ("..." if len(text) > 300 else ""),
+      })
+
+  # 阶段四：把答案写入对话历史
   if state.get("answer"):
-    logger.info("---写入MongoDB历史记录---")
+    logger.info("---写入对话历史---")
     step_4_write_history(state, image_urls=image_urls)
 
   add_done_task(state['session_id'], sys._getframe().f_code.co_name, state.get("is_stream"))
   
+  # 同时把 source_chunks 存入 task result，供非流式路径前端读取
+  from app.utils.task_utils import set_task_result
+  import json as _json
+  try:
+      set_task_result(state['session_id'], "source_chunks", _json.dumps(source_chunks, ensure_ascii=False))
+  except Exception:
+      pass
+
   # 阶段五: 流式输出结束，发送 final 事件 [最后兜底，确保图片都能争取渲染和结束]
   logger.info(f"---发送 final 事件---图片为：{image_urls}")
   if state.get("is_stream"):
@@ -331,7 +354,8 @@ def node_answer_output(state: QueryGraphState) -> QueryGraphState:
         {
             "answer": state["answer"],
             "status": "completed",
-            "image_urls": image_urls  # 发送图片URL给前端
+            "image_urls": image_urls,
+            "source_chunks": source_chunks,
         }
     )
   

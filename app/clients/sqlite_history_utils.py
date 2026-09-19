@@ -232,6 +232,67 @@ def clear_history(session_id: str) -> int:
         return 0
 
 
+def get_all_sessions() -> List[Dict[str, Any]]:
+    """
+    获取所有会话列表，包含每个会话的消息数量、首条和末条时间、首条用户提问预览。
+    用于「对话历史」页面展示会话列表。
+    :return: List[Dict]，每个元素字段：session_id / message_count / first_ts / last_ts / first_user_question
+    """
+    conn = _get_conn()
+    if conn is None:
+        return []
+    try:
+        with _lock:
+            rows = conn.execute(
+                """
+                SELECT session_id,
+                       COUNT(*) AS message_count,
+                       MIN(ts) AS first_ts,
+                       MAX(ts) AS last_ts
+                FROM chat_message
+                GROUP BY session_id
+                ORDER BY last_ts DESC
+                """
+            ).fetchall()
+
+        sessions = []
+        for r in rows:
+            sid = r["session_id"]
+            # 取该会话最早的一条 user 消息作为预览
+            preview = ""
+            try:
+                with _lock:
+                    cur = conn.execute(
+                        "SELECT text FROM chat_message WHERE session_id=? AND role='user' ORDER BY ts ASC LIMIT 1",
+                        (sid,)
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        preview = (row["text"] or "")[:80]
+            except Exception:
+                pass
+
+            sessions.append({
+                "session_id": sid,
+                "message_count": r["message_count"],
+                "first_ts": r["first_ts"],
+                "last_ts": r["last_ts"],
+                "preview": preview,
+            })
+        return sessions
+    except Exception as e:
+        logging.error(f"获取所有会话列表失败: {e}")
+        return []
+
+
+def delete_session(session_id: str) -> int:
+    """
+    删除整个会话的所有记录（比 clear_history 语义更明确，供前端调用）。
+    :return: 实际删除行数
+    """
+    return clear_history(session_id)
+
+
 if __name__ == "__main__":
     # 简单自测：写入 → 查询 → 更新商品名 → 清空
     sid = "test_sqlite_session"

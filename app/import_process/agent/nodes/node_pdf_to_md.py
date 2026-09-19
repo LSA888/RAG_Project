@@ -1,29 +1,93 @@
-# 系统库
+# ========== 文件最顶部：Windows控制台编码修复，解决PDF特殊字符日志输出报错 ==========
 import os
 import sys
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+os.environ["PYTHONUTF8"] = "1"
+
 import time
 import requests
 import zipfile
 import shutil
 from pathlib import Path
 
+# 新增PDF分片依赖
+import pdfplumber
+from PyPDF2 import PdfReader, PdfWriter
+
 # 项目内部库
 from app.import_process.agent.state import ImportGraphState, create_default_state
 from app.utils.format_utils import format_state
 from app.utils.task_utils import add_running_task, add_done_task
 from app.conf.mineru_config import mineru_config
-from app.core.logger import logger  # 统一日志工具
+from app.core.logger import logger
 
 # MinerU配置（缓存配置信息）
 MINERU_BASE_URL = mineru_config.base_url
 MINERU_API_TOKEN = mineru_config.api_key
+
+# 业务常量：MinerU单文件最大200页，分片取190留余量
+MAX_SINGLE_PDF_PAGE = 200
+CHUNK_PAGE_SIZE = 190
+
+
+def split_pdf_into_chunks(pdf_path_obj: Path, out_dir: Path) -> list[Path]:
+    """
+    本地拆分大PDF，每块最多CHUNK_PAGE_SIZE页
+    :param pdf_path_obj: 原始PDF路径
+    :param out_dir: 分片PDF输出目录
+    :return: 分片后的子PDF Path对象列表
+    """
+    log_prefix = "[split_pdf_into_chunks] "
+    reader = None
+    try:
+        reader = PdfReader(pdf_path_obj)
+        total_pages = len(reader.pages)
+        chunk_files = []
+
+        # 创建分片临时子目录
+        chunk_dir = out_dir / "pdf_chunks"
+        if chunk_dir.exists():
+            shutil.rmtree(chunk_dir)
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+
+        for start_idx in range(0, total_pages, CHUNK_PAGE_SIZE):
+            end_idx = min(start_idx + CHUNK_PAGE_SIZE, total_pages)
+            writer = PdfWriter()
+            for page_no in range(start_idx, end_idx):
+                writer.add_page(reader.pages[page_no])
+            chunk_filename = f"{pdf_path_obj.stem}_part_{start_idx + 1}_{end_idx}.pdf"
+            chunk_path = chunk_dir / chunk_filename
+            with open(chunk_path, "wb") as f_out:
+                writer.write(f_out)
+            chunk_files.append(chunk_path)
+            logger.info(f"{log_prefix}生成分片文件：{chunk_filename}，页码范围 {start_idx+1} ~ {end_idx}")
+
+        logger.info(f"{log_prefix}PDF拆分完成，共生成 {len(chunk_files)} 个分片文件")
+        return chunk_files
+    finally:
+        # 手动释放，防止句柄泄露
+        if reader is not None and hasattr(reader, "stream"):
+            reader.stream.close()
+
+
+
+def parse_single_pdf(pdf_path_obj: Path, output_dir_obj: Path) -> str:
+    """
+    封装【单个PDF完整解析流程】：上传‑轮询‑下载解压‑返回md绝对路径
+    复用原有step2、step3逻辑，分片循环时调用本函数
+    """
+    zip_url = step_2_upload_and_poll(pdf_path_obj, output_dir_obj)
+    md_path = step_3_download_and_extract(zip_url, output_dir_obj, pdf_path_obj.stem)
+    return md_path
 
 
 def step_1_validate_paths(state):
     """
     步骤1：校验PDF文件路径和输出目录
     核心职责：参数非空校验 | PDF文件有效性校验 | 输出目录自动创建
-    返回：合法的PDF文件Path对象、输出目录Path对象
+    返回：合法的PDF文件Path对象、输出目录Path对象、pdf总页数
     异常：ValueError(参数缺失)、FileNotFoundError(文件无效)
     """
     log_prefix = "[step_1_validate_paths] "
@@ -51,14 +115,23 @@ def step_1_validate_paths(state):
         logger.info(f"{log_prefix}输出目录不存在，自动创建：{output_dir_obj.absolute()}")
         output_dir_obj.mkdir(parents=True, exist_ok=True)
 
-    return pdf_path_obj, output_dir_obj
+    # 读取PDF总页数
+    try:
+        with pdfplumber.open(pdf_path_obj) as pdf_reader:
+            total_pdf_pages = len(pdf_reader.pages)
+        logger.info(f"{log_prefix}PDF总页数：{total_pdf_pages}")
+    except Exception as e:
+        logger.warning(f"{log_prefix}读取PDF页数失败，设置总页数为0，不做分片：{str(e)}")
+        total_pdf_pages = 0
+
+    return pdf_path_obj, output_dir_obj, total_pdf_pages
 
 
 def step_2_upload_and_poll(pdf_path_obj: Path, output_dir_obj: Path):
     """
     步骤2：上传PDF至MinerU并轮询解析任务状态
     核心流程：配置校验 → 获取上传链接 → 文件上传（含重试） → 任务轮询（直至完成/失败/超时）
-    参数：pdf_path_obj-已校验的PDF Path对象；output_dir_obj-输出目录Path对象
+    参数：pdf_path_obj‑已校验的PDF Path对象；output_dir_obj‑输出目录Path对象
     返回：解析结果ZIP包下载链接full_zip_url
     异常：ValueError(配置缺失)、RuntimeError(请求/上传失败)、TimeoutError(任务超时)
     """
@@ -67,7 +140,7 @@ def step_2_upload_and_poll(pdf_path_obj: Path, output_dir_obj: Path):
         raise ValueError("MinerU配置缺失：请在.env中正确配置MINERU_BASE_URL和MINERU_API_TOKEN")
     logger.info(f"[配置校验] MinerU基础配置加载成功，开始处理文件：{pdf_path_obj.name}")
 
-    # 构造请求头（符合HTTP规范，Bearer鉴权）
+    # 构造请求头（符合HTTP规范，Bearer鉴权，全部改为半角横杠）
     request_headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {MINERU_API_TOKEN}"
@@ -107,7 +180,7 @@ def step_2_upload_and_poll(pdf_path_obj: Path, output_dir_obj: Path):
     try:
         # 首次上传：自动识别文件类型
         put_resp = upload_session.put(url=signed_url, data=file_data, timeout=60)
-        # 重试逻辑：首次失败则强制指定PDF的Content-Type
+        # 重试逻辑：首次失败则强制指定PDF的Content‑Type
         if put_resp.status_code != 200:
             logger.warning(f"[文件上传] 首次上传失败（状态码：{put_resp.status_code}），强制指定PDF类型重试")
             pdf_headers = {"Content-Type": "application/pdf"}
@@ -125,8 +198,8 @@ def step_2_upload_and_poll(pdf_path_obj: Path, output_dir_obj: Path):
     # 3. 根据batch_id轮询任务状态，直至完成/失败/超时
     poll_url = f"{MINERU_BASE_URL}/extract-results/batch/{batch_id}"
     start_time = time.time()
-    timeout_seconds = 600  # 最大超时时间10分钟（适配600页内PDF）
-    poll_interval = 3      # 轮询间隔3秒（平衡查询频率和服务端压力）
+    timeout_seconds = 600  # 最大超时时间10分钟
+    poll_interval = 3  # 轮询间隔3秒（平衡查询频率和服务端压力）
     logger.info(f"[任务轮询] 开始监控任务状态，batch_id：{batch_id}，最大超时：{timeout_seconds}s")
 
     while True:
@@ -171,26 +244,27 @@ def step_2_upload_and_poll(pdf_path_obj: Path, output_dir_obj: Path):
             logger.info(f"[任务轮询] 解析任务完成！总耗时：{int(elapsed_time)}s，batch_id：{batch_id}")
             full_zip_url = result_item.get("full_zip_url")
             if not full_zip_url:
-                raise RuntimeError("[任务轮询] 任务完成但未返回ZIP包下载链接，batch_id：{batch_id}")
+                # 修复：增加f-string格式化
+                raise RuntimeError(f"[任务轮询] 任务完成但未返回ZIP包下载链接，batch_id：{batch_id}")
             logger.info(f"[任务轮询] 结果ZIP包下载链接：{full_zip_url}...")
             return full_zip_url
         # 状态2：任务失败，提取错误信息抛出
         elif state_status == "failed":
             err_msg = result_item.get("err_msg", "未知错误，无具体信息")
             raise RuntimeError(f"[任务轮询] 解析任务失败，batch_id：{batch_id}，错误信息：{err_msg}")
-        # 状态3：处理中，实时打印进度（覆盖当前行）
+        # 状态3：处理中
         else:
             logger.debug(
-                f"[任务轮询] 处理中（已耗时{int(elapsed_time)}s），状态：{state_status} | 刷新间隔{poll_interval}s",
-                end="\r"
+                f"[任务轮询] 处理中（已耗时{int(elapsed_time)}s），状态：{state_status} | 刷新间隔{poll_interval}s"
             )
             time.sleep(poll_interval)
+
 
 def step_3_download_and_extract(zip_url: str, output_dir_obj: Path, pdf_stem: str) -> str:
     """
     步骤3：下载MinerU解析结果ZIP包并解压，提取目标MD文件（重命名统一规范）
     核心流程：下载ZIP → 清理旧目录并解压 → 查找MD文件（按优先级） → 重命名统一为PDF同名
-    参数：zip_url-ZIP包下载链接；output_dir_obj-输出目录Path；pdf_stem-PDF无后缀纯名称
+    参数：zip_url‑ZIP包下载链接；output_dir_obj‑输出目录Path；pdf_stem‑PDF无后缀纯名称
     返回：最终MD文件的字符串格式绝对路径
     异常：RuntimeError(下载失败)、FileNotFoundError(无MD文件)
     """
@@ -215,7 +289,6 @@ def step_3_download_and_extract(zip_url: str, output_dir_obj: Path, pdf_stem: st
     # 清理旧目录，异常则警告不终止
     if extract_target_dir.exists():
         try:
-            # 递归删除整个目录树，包括目录本身及其所有子目录和文件。
             shutil.rmtree(extract_target_dir)
             logger.info(f"[步骤2/4] 已清理旧的解压目录：{extract_target_dir}")
         except Exception as e:
@@ -261,77 +334,87 @@ def step_3_download_and_extract(zip_url: str, output_dir_obj: Path, pdf_stem: st
         logger.info(f"[步骤4/4] 开始重命名MD文件，统一为PDF同名：{pdf_stem}.md")
         new_md_path = target_md_file.with_name(f"{pdf_stem}.md")
         try:
-            # 将磁盘上的文件进行重命名
             target_md_file.rename(new_md_path)
-            # 更新变量引用
             target_md_file = new_md_path
             logger.info(f"[步骤4/4] MD文件重命名成功：{pdf_stem}.md")
         except OSError as e:
             logger.warning(f"[步骤4/4] MD文件重命名失败，将使用原文件名继续流程：{str(e)}")
 
-    # 转换为字符串绝对路径返回，适配后续仅支持字符串路径的函数
+    # 转换为字符串绝对路径返回
     final_md_path = str(target_md_file.absolute())
     logger.info(f"===== [{pdf_stem}]解析结果处理完成，最终MD文件路径：{final_md_path} =====")
     return final_md_path
 
+
 def node_pdf_to_md(state: ImportGraphState) -> ImportGraphState:
     """
     LangGraph工作流节点：PDF转MD核心处理节点
-    核心流程：路径校验 → MinerU上传解析 → 结果下载解压 → 读取MD内容并更新工作流状态
-    参数：state-工作流状态对象，需包含pdf_path/local_dir/task_id
+    新增自动分片合并：超过200页本地拆分，分别解析后合并输出完整md
+    参数：state‑工作流状态对象，需包含pdf_path/local_dir/task_id
     返回：更新后的工作流状态，新增md_path/md_content
     """
 
-    # 动态获取函数名避免硬编码
     func_name = sys._getframe().f_code.co_name
 
-    # 节点启动日志，打印当前工作流状态
     logger.debug(f"【{func_name}】节点启动，\n当前工作流状态：{format_state(state)}")
 
-    # 开始：记录节点运行状态
     add_running_task(state["task_id"], func_name)
-
-
     try:
-        # 步骤1：校验PDF路径和输出目录
-        pdf_path_obj, output_dir_obj = step_1_validate_paths(state)
+        # 步骤1校验，额外拿到总页数
+        pdf_path_obj, output_dir_obj, total_pages = step_1_validate_paths(state)
 
-        # 步骤2：上传PDF至MinerU并轮询解析结果
-        zip_url = step_2_upload_and_poll(pdf_path_obj, output_dir_obj)
+        md_content_list = []
+        final_md_path = ""
 
-        # 步骤3：下载ZIP包并提取MD文件
-        md_path = step_3_download_and_extract(zip_url, output_dir_obj, pdf_path_obj.stem)
-
-        # 更新工作流状态：记录MD文件路径和内容
-        state["md_path"] = md_path
-        logger.info(f"【{func_name}】MD文件生成成功，路径：{md_path}")
-
-        # 读取MD文件内容，捕获异常仅警告不终止
-        try:
+        if 0 < total_pages <= MAX_SINGLE_PDF_PAGE:
+            # 页数正常：原有单文件流程
+            logger.info(f"【{func_name}】页数 {total_pages} ≤ {MAX_SINGLE_PDF_PAGE}，直接解析原始PDF")
+            zip_url = step_2_upload_and_poll(pdf_path_obj, output_dir_obj)
+            md_path = step_3_download_and_extract(zip_url, output_dir_obj, pdf_path_obj.stem)
+            final_md_path = md_path
             with open(md_path, "r", encoding="utf-8") as f:
-                state["md_content"] = f.read()
-            logger.debug(f"【{func_name}】MD文件内容读取成功，内容长度：{len(state['md_content'])}字符")
-        except Exception as e:
-            logger.error(f"【{func_name}】读取MD文件内容失败：{str(e)}")
+                md_content_list.append(f.read())
+        else:
+            # 页数超限：本地分片
+            logger.info(f"【{func_name}】页数 {total_pages} > {MAX_SINGLE_PDF_PAGE}，执行本地PDF分片预处理")
+            chunk_pdf_paths = split_pdf_into_chunks(pdf_path_obj, output_dir_obj)
+            # 循环逐个解析分片（串行，避免短时间大量请求打满MinerU）
+            for idx, chunk_pdf in enumerate(chunk_pdf_paths):
+                logger.info(f"【{func_name}】开始处理分片 {idx+1}/{len(chunk_pdf_paths)} : {chunk_pdf.name}")
+                chunk_md_path = parse_single_pdf(chunk_pdf, output_dir_obj)
+                with open(chunk_md_path, "r", encoding="utf-8") as f:
+                    chunk_text = f.read()
+                # 增加分片分隔标记，方便阅读
+                md_content_list.append(f"\n\n<!-- ========= PDF分片 {idx+1} 开始 ========= -->\n\n")
+                md_content_list.append(chunk_text)
+                md_content_list.append(f"\n\n<!-- ========= PDF分片 {idx+1} 结束 ========= -->\n\n")
+
+            # 合并全部分片md，写出最终完整md文件
+            merged_md_path = output_dir_obj / f"{pdf_path_obj.stem}_merged_all.md"
+            full_text = "".join(md_content_list)
+            with open(merged_md_path, "w", encoding="utf-8") as f_out:
+                f_out.write(full_text)
+            final_md_path = str(merged_md_path.absolute())
+            logger.info(f"【{func_name}】分片全部解析完成，已合并输出完整MD：{final_md_path}")
+
+        # 更新state，对外接口保持不变
+        state["md_path"] = final_md_path
+        state["md_content"] = "".join(md_content_list)
+        logger.info(f"【{func_name}】MD文件生成成功，路径：{final_md_path}，总字符长度：{len(state['md_content'])}")
 
         logger.info(f"【{func_name}】节点执行完成，更新后工作流状态键：{list(state.keys())}")
 
     except Exception as e:
-        # 异常日志分级，精准提示配置问题
         logger.error(f"【{func_name}】PDF转MD流程执行失败：{str(e)}", exc_info=True)
-        raise  # 抛出异常，终止工作流
+        raise
     finally:
-
-        # 结束：记录节点运行状态
         add_done_task(state["task_id"], func_name)
-
-        # 节点完成日志，打印当前工作流状态
         logger.debug(f"【{func_name}】节点执行完成，\n更新后工作流状态：{format_state(state)}")
 
     return state
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     # 单元测试：验证PDF转MD全流程
     logger.info("===== 开始node_pdf_to_md节点单元测试 =====")
 

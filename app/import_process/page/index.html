@@ -72,15 +72,23 @@
             gap: 16px;
             justify-content: center;
         }
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
         .btn {
             display: inline-block;
-            padding: 14px 36px;
+            padding: 14px 20px;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
             text-decoration: none;
             transition: background-color 0.3s, transform 0.2s;
+            text-align: center;
         }
         .btn:hover {
             transform: translateY(-2px);
@@ -95,11 +103,21 @@
         }
         /* 次按钮：智能问答 */
         .btn-secondary {
-            background-color: white;
-            color: #3498db;
-            border: 2px solid #3498db;
+            background-color: #27ae60;
+            color: white;
         }
         .btn-secondary:hover {
+            background-color: #219a52;
+        }
+        /* 描边按钮：其他功能入口 */
+        .btn-outline {
+            background-color: white;
+            color: #7f8c8d;
+            border: 2px solid #bdc3c7;
+        }
+        .btn-outline:hover {
+            border-color: #3498db;
+            color: #3498db;
             background-color: #ecf6fd;
         }
         .footer-tip {
@@ -140,10 +158,13 @@
             </div>
         </div>
 
-        <!-- 跳转按钮 -->
-        <div class="btn-area">
+        <!-- 跳转按钮区域 -->
+        <div class="btn-grid">
             <a class="btn btn-primary" href="/import.html">⬆️ 上传文档</a>
             <a class="btn btn-secondary" href="http://127.0.0.1:8001/chat.html">💬 智能问答</a>
+            <a class="btn btn-outline" href="/kb.html">📂 知识库管理</a>
+            <a class="btn btn-outline" href="/history.html">📝 对话历史</a>
+            <a class="btn btn-outline" href="/system.html">⚙️ 系统状态</a>
         </div>
 
         <div class="footer-tip">Tip：建议先上传文档构建知识库，再前往智能问答页提问</div>

@@ -1,5 +1,6 @@
 from pathlib import Path
 import uuid
+import json as _json
 import uvicorn
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -8,7 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.utils.task_utils import *
 from app.utils.sse_utils import create_sse_queue, SSEEvent, sse_generator
-from app.clients.sqlite_history_utils import *
+from app.clients.sqlite_history_utils import get_recent_messages, clear_history, get_all_sessions, delete_session
 from app.query_process.agent.main_graph import query_app
 
 # 后续导入启动图对象
@@ -111,12 +112,18 @@ async def query(background_tasks: BackgroundTasks, request: QueryRequest):
     else:
         # 同步运行
         run_query_graph(session_id, user_query, is_stream)
-        answer = get_task_result(session_id,"answer","")
+        answer = get_task_result(session_id, "answer", "")
+        source_raw = get_task_result(session_id, "source_chunks", "[]")
+        try:
+            source_chunks = _json.loads(source_raw) if isinstance(source_raw, str) else (source_raw or [])
+        except Exception:
+            source_chunks = []
         return {
             "message":"处理完成！",
             "session_id":session_id,
             "answer":answer,
-            "done_list":[]
+            "done_list":[],
+            "source_chunks": source_chunks,
         }
 
 
@@ -165,6 +172,27 @@ async def history(session_id: str, limit: int = 50):
 async def clear_chat_history(session_id: str):
     count = clear_history(session_id)
     return {"message": "History cleared", "deleted_count": count}
+
+
+# --------------------------
+# API：所有会话列表（供 8000 端口的 history.html 页面调用）
+# --------------------------
+@app.get("/api/all_history")
+async def api_all_history():
+    try:
+        sessions = get_all_sessions()
+        return {"ok": True, "sessions": sessions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"all_history error: {e}")
+
+
+# --------------------------
+# API：删除整个会话
+# --------------------------
+@app.delete("/api/session/{session_id}")
+async def api_delete_session(session_id: str):
+    count = delete_session(session_id)
+    return {"ok": True, "deleted_count": count}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统状态 - 掌柜智库</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 20px;
+        }
+        .topbar h1 { margin: 0; font-size: 22px; color: #2c3e50; }
+        .topbar .refresh-btn {
+            margin-left: auto;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .btn-home {
+            padding: 8px 16px;
+            background: white;
+            color: #3498db;
+            border: 1px solid #3498db;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow: hidden;
+        }
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #ecf0f1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-header h2 { margin: 0; font-size: 16px; color: #2c3e50; }
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge.online { background: #d4edda; color: #155724; }
+        .badge.offline { background: #f8d7da; color: #721c24; }
+        .card-body {
+            padding: 16px 20px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+            font-size: 14px;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-row .label { color: #7f8c8d; }
+        .info-row .value { color: #2c3e50; font-family: monospace; }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #95a5a6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="topbar">
+            <div>
+                <h1>⚙️ 系统状态</h1>
+            </div>
+            <button class="refresh-btn" onclick="loadStatus()">🔄 刷新</button>
+            <a class="btn-home" href="/">🏠 返回首页</a>
+        </div>
+
+        <div class="grid" id="cards">
+            <div class="card"><div class="card-body"><div class="empty">加载中...</div></div></div>
+        </div>
+
+        <div class="footer" id="footer"></div>
+    </div>
+
+    <script>
+        async function loadStatus() {
+            try {
+                const res = await fetch('/api/system_status');
+                const data = await res.json();
+                render(data.services);
+                document.getElementById('footer').textContent = '服务时间：' + data.server_time;
+            } catch (e) {
+                document.getElementById('cards').innerHTML = `<div class="card"><div class="card-body">❌ 请求失败：${e.message}</div></div>`;
+            }
+        }
+
+        function render(services) {
+            const cards = [];
+
+            // Milvus
+            const m = services.milvus;
+            cards.push(`
+                <div class="card">
+                    <div class="card-header">
+                        <h2>🔷 Milvus 向量数据库</h2>
+                        <span class="badge ${m.status}">${m.status === 'online' ? '✅ 在线' : '❌ 离线'}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row"><span class="label">连接地址</span><span class="value">${m.url || '-'}</span></div>
+                        <div class="info-row"><span class="label">集合数量</span><span class="value">${m.collections}</span></div>
+                    </div>
+                </div>
+            `);
+
+            // MinIO
+            const mi = services.minio;
+            cards.push(`
+                <div class="card">
+                    <div class="card-header">
+                        <h2>🗄️ MinIO 对象存储</h2>
+                        <span class="badge ${mi.status}">${mi.status === 'online' ? '✅ 在线' : '❌ 离线'}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row"><span class="label">Endpoint</span><span class="value">${mi.endpoint || '-'}</span></div>
+                        <div class="info-row"><span class="label">说明</span><span class="value" style="font-family:inherit;">存原始文件和 Milvus 索引</span></div>
+                    </div>
+                </div>
+            `);
+
+            // SQLite
+            const sq = services.sqlite_history;
+            cards.push(`
+                <div class="card">
+                    <div class="card-header">
+                        <h2>💾 SQLite 对话历史</h2>
+                        <span class="badge online">✅ 在线</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row"><span class="label">会话数</span><span class="value">${sq.sessions}</span></div>
+                        <div class="info-row"><span class="label">消息总数</span><span class="value">${sq.messages}</span></div>
+                    </div>
+                </div>
+            `);
+
+            document.getElementById('cards').innerHTML = cards.join('');
+        }
+
+        loadStatus();
+        setInterval(loadStatus, 30000); // 每30秒自动刷新
+    </script>
+</body>
+</html>
