@@ -5,9 +5,10 @@
 ## 🌟 特性
 
 - 📄 **文档自动解析**：支持 PDF / Markdown 上传，PDF 调用 MinerU 在线 API 解析
+- 📚 **大 PDF 自动分片**：超过 200 页（MinerU 单文件上限）的 PDF 本地自动按 190 页拆分，逐片解析后合并，无需手动拆分
 - 🧩 **智能切分 + 商品识别**：LLM 辅助识别文档对应的产品名称，建库时一并写入
 - 🔍 **混合检索 + 重排序**：BGE-M3 稠密/稀疏向量混合检索 + bge-reranker-large 精排 + RRF 融合
-- 💬 **前端界面**：系统首页、文档导入页、流式问答页（SSE）
+- 💬 **前端界面**：系统首页、文档导入页、知识库管理页、对话历史页、系统状态页、流式问答页（SSE）
 
 ## 🏗️ 架构
 
@@ -185,6 +186,9 @@ python app\query_process\api\query_service.py
 |------|------|
 | 系统首页 | http://127.0.0.1:8000/ |
 | 上传文档 | http://127.0.0.1:8000/import.html |
+| 知识库管理 | http://127.0.0.1:8000/kb.html |
+| 对话历史 | http://127.0.0.1:8000/history.html |
+| 系统状态 | http://127.0.0.1:8000/system.html |
 | 智能问答 | http://127.0.0.1:8001/chat.html |
 | 导入 Swagger | http://127.0.0.1:8000/docs |
 | 查询 Swagger | http://127.0.0.1:8001/docs |
@@ -228,18 +232,24 @@ RAG_Project/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/upload` | 上传文件并启动导入流程 |
-| GET  | `/task/{task_id}` | 查询导入任务状态（SSE） |
-| GET  | `/` | 系统首页 |
-| GET  | `/import.html` | 文档导入页 |
+| POST | `/upload` | 上传文件并启动导入流程（支持多文件批量） |
+| GET  | `/status/{task_id}` | 查询导入任务状态 |
+| GET  | `/api/kb_stats` | 知识库统计（文档数、分块数） |
+| GET  | `/api/kb_chunks` | 知识库分块明细 |
+| GET  | `/api/system_status` | 服务/模型/数据库状态 |
+| GET  | `/`、`/import.html`、`/kb.html`、`/history.html`、`/system.html` | 前端页面 |
 
 ### 查询服务 (8001)
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/query` | 提问（同步 / 流式 SSE） |
+| POST | `/query` | 提问（同步） |
+| GET  | `/stream/{session_id}` | 流式问答（SSE） |
 | GET  | `/health` | 健康检查 |
-| GET  | `/history` | 获取对话历史（SQLite 本地存储） |
+| GET  | `/history/{session_id}` | 获取指定会话历史 |
+| DELETE | `/history/{session_id}` | 清空指定会话历史 |
+| GET  | `/api/all_history` | 获取所有会话列表（对话历史页） |
+| DELETE | `/api/session/{session_id}` | 删除整个会话 |
 | GET  | `/chat.html` | 智能问答页 |
 
 ## ⚠️ 注意事项
@@ -248,7 +258,7 @@ RAG_Project/
 - **知识图谱节点为预留空节点**：LangGraph 流程图中的 `node_query_kg`（Neo4j 知识图谱查询）当前是空实现（占位），不影响问答主链路。
 - **每次修改 `.env` 后必须重启服务**才会生效
 - CPU 上加载 BGE-M3 + reranker 两个模型约需 1 分钟，首次启动请耐心等待
-- MinerU 在线解析 PDF 消耗云端额度，大文件建议拆分成小手册上传
+- MinerU 在线解析 PDF 单文件上限 200 页，超过后系统会自动按 190 页分片逐个解析再合并（无需手动拆分）；解析仍消耗云端额度
 
 ## 📄 License
 
