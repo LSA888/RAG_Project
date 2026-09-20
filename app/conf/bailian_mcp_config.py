@@ -14,5 +14,6 @@ class McpConfig:
 
 mcp_config = McpConfig(
     mcp_base_url=os.getenv("MCP_DASHSCOPE_BASE_URL"),
-    api_key=os.getenv("OPENAI_API_KEY")
+    # 百炼MCP鉴权使用独立Key（.env中MCP_API_KEY），与LLM的DeepSeek Key分开，避免切换LLM后搜索鉴权失效
+    api_key=os.getenv("MCP_API_KEY")
 )
