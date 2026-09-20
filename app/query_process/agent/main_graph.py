@@ -8,7 +8,7 @@ from app.query_process.agent.nodes.node_rerank import node_rerank
 from app.query_process.agent.nodes.node_rrf import node_rrf
 from app.query_process.agent.nodes.node_search_embedding import node_search_embedding
 from app.query_process.agent.nodes.node_search_embedding_hyde import node_search_embedding_hyde
-from app.query_process.agent.nodes.node_web_search_mcp import node_web_search_mcp
+from app.query_process.agent.nodes.node_search_pro_mcp import node_web_search_mcp
 
 # 初始化状态图
 builder = StateGraph(QueryGraphState)

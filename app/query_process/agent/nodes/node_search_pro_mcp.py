@@ -7,57 +7,67 @@ from app.core.logger import logger
 
 async def mcp_call(query):
     """
-    异步调用百炼MCP搜索服务的核心函数。
+    异步调用百炼 MCP 联网搜索增强版（EnhancedSearch）的核心函数。
     
-    该函数负责初始化MCP客户端，建立SSE连接，调用远程工具，并返回原始结果。
+    - 协议：Streamable HTTP（百炼 MCP 已从旧 SSE 协议升级）
+    - 端点：由 .env 中 MCP_DASHSCOPE_BASE_URL 决定
+    - 工具名：search_pro（EnhancedSearch 服务的官方工具名）
+    - 鉴权：Bearer + Model Studio API Key
     
     :param query: 搜索查询词（通常是经过改写后的精准Query）
     :return: MCP返回的原始结果对象 (包含 content, isError 等字段)
     """
     
-    # ==================================================================================
-    # 初始化百炼MCP SSE客户端
-    # ----------------------------------------------------------------------------------
-    # MCPServerSse 是一个基于 SSE (Server-Sent Events) 协议的 MCP 客户端实现。
-    # 它的作用是连接到阿里云百炼提供的 MCP 服务端点，从而让我们可以像调用本地函数一样调用远程工具。
-    #
-    # 参数解释：
-    # name: 客户端名称，用于日志标识，方便调试。
-    # params: 连接配置字典
-    #   - url: MCP 服务的 SSE 接口地址 (例如: .../mcps/WebSearch/sse)
-    #   - headers: HTTP 请求头，必须包含 Authorization 字段传入 API Key 进行鉴权。
-    #   - timeout: 连接建立和整体请求的超时时间。
-    #   - sse_read_timeout: 读取 SSE 事件流的超时时间，防止流中断导致挂起。
-    # ==================================================================================
-    from agents.mcp import MCPServerSse
-    search_mcp = MCPServerSse(
+    from agents.mcp import MCPServerStreamableHttp
+    auth_header = f"Bearer {mcp_config.api_key}"
+    search_mcp = MCPServerStreamableHttp(
         name="search_mcp",
         params={
             "url": mcp_config.mcp_base_url,
-            "headers": {"Authorization": mcp_config.api_key},
+            "headers": {"Authorization": auth_header},
             "timeout": 300,
             "sse_read_timeout": 300
         }
     )
 
     try:
-        logger.info(f"[MCP] 正在连接百炼 WebSearch 服务: {mcp_config.mcp_base_url}")
-        # 建立与MCP服务的SSE连接（异步方法，需await）
+        logger.info(f"[MCP] 正在连接百炼 EnhancedSearch 服务: {mcp_config.mcp_base_url}")
         await search_mcp.connect()
         
-        logger.info(f"[MCP] 连接成功，正在调用工具 'bailian_web_search' 查询: {query}")
-        # 调用百炼MCP的搜索工具（核心步骤）
-        # tool_name: "bailian_web_search" 是百炼官方定义的工具名称
-        # arguments: 工具所需的参数，这里需要 "query" (查询词) 和 "count" (返回数量)
+        logger.info(f"[MCP] 连接成功，正在调用工具 'search_pro' 查询: {query[:50]}...")
+        # EnhancedSearch 服务的工具名是 search_pro（不是旧 WebSearch 的 bailian_web_search）
         result = await search_mcp.call_tool(
-            tool_name="bailian_web_search", 
-            arguments={"query": query, "count": 5}
+            tool_name="search_pro", 
+            # EnhancedSearch 的 search_pro 只支持 query 一个参数，不接受 count
+            arguments={"query": query}
         )
         logger.info("[MCP] 工具调用完成，已获取返回结果")
         return result
         
     except Exception as e:
-        logger.error(f"[MCP] 调用过程中发生异常: {e}", exc_info=True)
+        # TaskGroup 异常只是外壳，真正原因藏在 sub-exception 里
+        logger.error(f"[MCP] 调用过程中发生异常: {type(e).__name__}: {e}")
+        # 展开 ExceptionGroup / TaskGroup 内部的真实异常
+        # 注意：不能用 exc_info=sub 传给 loguru，因为 httpx.HTTPStatusError
+        # 需要 request/response 两个 keyword-only 参数才能 pickle，多进程队列会报错
+        if hasattr(e, 'exceptions'):
+            for i, sub in enumerate(e.exceptions):
+                logger.error(f"[MCP] sub-exception[{i}]: {type(sub).__name__}: {sub}")
+                # 如果是 HTTPStatusError，额外打出 status_code 和 response body
+                sub_str = str(sub)
+                if '401' in sub_str:
+                    logger.error("[MCP] → 鉴权失败(401)：检查 .env 中 MCP_API_KEY 是否为百炼 Key（不是 DeepSeek 的）")
+                elif '404' in sub_str:
+                    logger.error("[MCP] → URL 不存在(404)：检查 MCP_DASHSCOPE_BASE_URL 路径是否正确")
+                elif '403' in sub_str:
+                    logger.error("[MCP] → 禁止访问(403)：Key 可能无权限或额度不足")
+                elif '429' in sub_str:
+                    logger.error("[MCP] → 限流(429)：百炼 MCP 调用过于频繁")
+        if hasattr(e, '__cause__') and e.__cause__:
+            logger.error(f"[MCP] __cause__: {type(e.__cause__).__name__}: {e.__cause__}")
+        # 打印当前 MCP 配置方便排查
+        api_key_display = ('***' + mcp_config.api_key[-4:]) if (mcp_config.api_key and len(mcp_config.api_key) >= 4) else '(未配置)'
+        logger.error(f"[MCP] 当前配置 url={mcp_config.mcp_base_url}, api_key={api_key_display}")
         return None
         
     finally:
